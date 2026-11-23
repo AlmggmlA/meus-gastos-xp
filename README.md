@@ -93,6 +93,50 @@ Os dados ficam em `dados/gastos.sqlite3`. Para mover ou fazer backup do banco,
 encerre o programa e copie esse arquivo. O banco guarda lançamentos e eventuais
 nomes de portadores. Proteja esse arquivo e os CSVs como documentos financeiros.
 
+### Criação do esquema
+
+Para criar um banco novo manualmente, execute a consulta abaixo no SQLite. O
+aplicativo também cria e migra esse esquema automaticamente ao iniciar.
+
+```sql
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS fatura (
+    id INTEGER PRIMARY KEY,
+    cartao TEXT NOT NULL,
+    periodo TEXT NOT NULL,
+    hash_csv TEXT NOT NULL,
+    sinal TEXT NOT NULL,
+    importada_em TEXT NOT NULL,
+    UNIQUE(cartao, periodo)
+);
+
+CREATE TABLE IF NOT EXISTS lancamento (
+    id INTEGER PRIMARY KEY,
+    fatura_id INTEGER NOT NULL REFERENCES fatura(id) ON DELETE CASCADE,
+    data TEXT NOT NULL,
+    descricao TEXT NOT NULL,
+    valor_centavos INTEGER NOT NULL,
+    portador TEXT NOT NULL,
+    natureza TEXT NOT NULL CHECK(natureza IN ('debito', 'credito', 'pagamento')),
+    parcela TEXT,
+    estabelecimento TEXT NOT NULL DEFAULT '',
+    categoria_manual TEXT
+);
+
+CREATE TABLE IF NOT EXISTS regra_categoria_estabelecimento (
+    estabelecimento_chave TEXT PRIMARY KEY,
+    categoria TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS lancamento_fatura_data
+ON lancamento(fatura_id, data);
+```
+
+`categoria_manual` aceita `NULL` quando não há escolha manual e uma string vazia
+para uma escolha explícita de **Sem categoria**. As regras usam a versão
+normalizada do estabelecimento em `estabelecimento_chave`.
+
 ## API local
 
 | Método e caminho | Dados |
