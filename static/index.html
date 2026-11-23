@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Meus gastos XP</title>
+  <link rel="stylesheet" href="/estilo.css">
+  <script src="/analises.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topo">
+    <div class="largura linha"><h1>Meus gastos XP</h1><span>Painel local</span></div>
+    <nav class="largura navegacao" aria-label="Navegação principal">
+      <a href="#faturas" data-tela="faturas">Faturas e lançamentos</a>
+      <a href="#visao" data-tela="visao">Visão do cartão</a>
+      <a href="#parceladas" data-tela="parceladas">Compras parceladas</a>
+    </nav>
+  </header>
+  <main class="largura">
+    <section id="telaFaturas" class="tela">
+      <section class="cartao">
+        <h2>Importar faturas</h2>
+        <form id="importar">
+          <label>Arquivos CSV<input id="arquivo" type="file" accept=".csv,text/csv" multiple required></label>
+          <label>Apelido do cartão<input id="cartao" value="Cartão XP" maxlength="60" required></label>
+          <label>Sinal das compras no CSV
+            <select id="sinal"><option value="positivo">Positivo</option><option value="negativo">Negativo</option></select>
+          </label>
+          <button id="enviar" type="submit">Importar faturas</button>
+        </form>
+        <div id="revisao" hidden>
+          <h3>Revisar faturas</h3><p class="nota">Confira o mês de cada arquivo antes de importar. O apelido e o sinal acima valem para todo o lote.</p>
+          <div class="tabela"><table aria-label="Arquivos selecionados para importação"><thead><tr><th>Arquivo</th><th>Mês da fatura</th><th>Resultado</th><th><span class="sr-only">Ação</span></th></tr></thead><tbody id="arquivosSelecionados"></tbody></table></div>
+        </div>
+        <p id="mensagem" role="status"></p>
+      </section>
+      <section class="extrato">
+        <div class="linha"><h2 id="lancamentosTitulo" tabindex="-1">Lançamentos</h2><label class="seletor">Fatura<select id="faturas" disabled><option value="">Sem faturas importadas</option></select></label></div>
+        <p id="erroConsulta" role="status" class="erro"></p><p id="estadoInicial">Importe um CSV para consultar seus gastos.</p>
+        <div id="conteudo" hidden>
+          <div class="filtros">
+            <label>Buscar lançamento<input id="busca" type="search" placeholder="Descrição ou portador" maxlength="120"></label>
+            <label>Tipo<select id="natureza"><option value="">Todos</option><option value="debito">Débito</option><option value="credito">Crédito</option><option value="pagamento">Pagamento da fatura</option></select></label>
+            <label>Categoria<select id="categoria"><option value="">Todas</option><option value="__sem_categoria__">Sem categoria</option><option>Supermercado</option><option>Restaurantes e delivery</option><option>Transporte</option><option>Saúde e farmácia</option><option>Casa</option><option>Compras pessoais</option><option>Assinaturas</option><option>Lazer</option><option>Tarifas e encargos</option><option>Outros</option></select></label>
+          </div>
+          <div class="tabela"><table aria-label="Lançamentos da fatura"><thead><tr><th>Data</th><th>Descrição</th><th>Portador</th><th>Tipo</th><th>Categoria</th><th>Valor</th></tr></thead><tbody id="linhas"></tbody></table></div>
+          <div class="linha paginacao"><span id="contagem" aria-live="polite"></span><div><button class="claro" id="anterior" type="button">Anterior</button><button class="claro" id="proximo" type="button">Próxima</button></div></div>
+        </div>
+      </section>
+    </section>
+
+    <section id="telaVisao" class="tela" hidden>
+      <div class="linha titulo-analises"><h2>Visão do cartão</h2><span id="cartaoAnalisado"></span></div>
+      <p id="statusAnalises" role="status"></p>
+      <div id="dadosVisao" hidden>
+        <dl class="metricas"><div><dt>Débitos</dt><dd id="debitos">—</dd></div><div><dt>Créditos e estornos</dt><dd id="creditos">—</dd></div><div><dt>Gasto líquido</dt><dd id="liquido">—</dd></div></dl>
+        <p class="nota">Gasto líquido = débitos − créditos, excluindo pagamentos da fatura identificados na importação.</p>
+        <div class="graficos">
+          <figure class="cartao"><figcaption id="historicoTitulo">Gasto líquido por fatura</figcaption><p class="nota">Meses com CSV importado, descontando créditos e estornos.</p><ol id="graficoHistorico" class="grafico" aria-labelledby="historicoTitulo" tabindex="0"></ol></figure>
+          <figure class="cartao"><figcaption id="categoriaTitulo">Gastos por categoria</figcaption><p class="nota">Somente débitos lançados na fatura selecionada.</p><ol id="graficoCategorias" class="grafico" aria-labelledby="categoriaTitulo" tabindex="0"></ol><p id="semCategorias" class="estado-vazio" hidden>Sem débitos nesta fatura.</p></figure>
+        </div>
+      </div>
+    </section>
+
+    <section id="telaParceladas" class="tela" hidden>
+      <div class="linha titulo-analises"><h2>Compras parceladas</h2><span id="cartaoParcelas"></span></div>
+      <div id="dadosParceladas" hidden>
+        <dl class="metricas"><div><dt>Em andamento</dt><dd id="comprasAbertas">0</dd></div><div><dt>Saldo futuro estimado</dt><dd id="saldoPrevisto">—</dd></div><div><dt>Vínculos a conferir</dt><dd id="comprasRevisao">0</dd></div></dl>
+        <figure class="cartao"><figcaption id="previsaoTitulo">Parcelas previstas por mês</figcaption><p class="nota">Estimativa após a fatura mais recente importada.</p><ol id="graficoPrevisao" class="grafico" aria-labelledby="previsaoTitulo" tabindex="0"></ol><p id="semPrevisao" class="estado-vazio" hidden>Sem parcelas futuras estimadas.</p></figure>
+        <section class="cartao acompanhamento"><div class="linha"><div><h3>Detalhes das compras</h3><p class="nota">Vínculos estimados a partir dos lançamentos do CSV.</p></div><label class="seletor">Situação<select id="filtroCompra"><option value="">Todas</option><option value="em_andamento">Em andamento</option><option value="completo">Todas lançadas</option><option value="incompleto">Histórico incompleto</option><option value="conferir">Conferir vínculo</option></select></label></div><p id="semCompras" class="estado-vazio" hidden></p><div id="compras"></div></section>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

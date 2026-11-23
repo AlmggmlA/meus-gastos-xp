@@ -1,0 +1,16 @@
+# Dados locais e faturas pessoais
+faturas/
+dados/
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Sistema e editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
