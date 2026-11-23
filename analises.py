@@ -3,7 +3,7 @@
 from collections import Counter, defaultdict
 import re
 
-from faturas import normalizar
+from faturas import CATEGORIAS, SEM_CATEGORIA, normalizar
 
 MIN_CICLO = 12          # Janeiro do ano 1.
 MAX_CICLO = 9999 * 12 + 11
@@ -112,6 +112,7 @@ def descrever_compra(lancamentos, ultimo_ciclo, projecao):
 
     return {
         "descricao": primeira["descricao"], "portador": primeira["portador"],
+        "categoria": next((item["categoria"] for item in lancamentos if item["categoria"] != SEM_CATEGORIA), SEM_CATEGORIA),
         "total": total, "numeros_observados": list(contagem), "status": status, "motivo": motivo,
         "realizadas": realizadas, "previstas": previstas, "faltantes": faltantes,
         "saldo_previsto_centavos": sum(item["valor_centavos"] for item in previstas),
@@ -124,8 +125,12 @@ def acompanhar_parcelas(conn, cartao, ultimo_ciclo):
     vinculos_conflitantes = set()
     registros = conn.execute("""
         SELECT l.data, l.descricao, l.valor_centavos, l.portador, l.parcela,
+               CASE WHEN l.categoria_manual IS NOT NULL THEN l.categoria_manual
+                    ELSE COALESCE(r.categoria, '') END AS categoria,
                f.id AS fatura_id, f.periodo
         FROM lancamento l JOIN fatura f ON f.id = l.fatura_id
+        LEFT JOIN regra_categoria_estabelecimento r
+          ON r.estabelecimento_chave = normalizar(l.estabelecimento)
         WHERE f.cartao = ? AND l.natureza = 'debito' AND l.valor_centavos > 0
     """, (cartao,))
     for linha in registros:
@@ -146,6 +151,7 @@ def acompanhar_parcelas(conn, cartao, ultimo_ciclo):
             "conflito": bool(referencia_alternativa), "portador": linha["portador"],
             "fatura_id": linha["fatura_id"],
             "periodo": linha["periodo"], "valor_centavos": linha["valor_centavos"],
+            "categoria": linha["categoria"] or SEM_CATEGORIA,
         })
 
     projecao = defaultdict(int)
@@ -185,4 +191,103 @@ def analises_cartao(conn, cartao, fatura_id):
             {**item, "categoria": item["categoria"] or "Sem categoria"}
             for item in gastos_por_categoria(conn, fatura_id)
         ],
+    }
+
+
+def _linhas_categorizadas(conn, cartao):
+    return [dict(linha) for linha in conn.execute("""
+        SELECT f.periodo, l.estabelecimento, l.valor_centavos, l.natureza,
+               CASE WHEN l.categoria_manual IS NOT NULL THEN l.categoria_manual
+                    ELSE COALESCE(r.categoria, '') END AS categoria
+        FROM lancamento l JOIN fatura f ON f.id = l.fatura_id
+        LEFT JOIN regra_categoria_estabelecimento r
+          ON r.estabelecimento_chave = normalizar(l.estabelecimento)
+        WHERE f.cartao = ?
+    """, (cartao,))]
+
+
+def _compromissos_futuros(conn, cartao):
+    historico = historico_mensal(conn, cartao)
+    if not historico:
+        return []
+    compras, _ = acompanhar_parcelas(conn, cartao, ciclo(historico[-1]["periodo"]))
+    totais = defaultdict(lambda: [0, 0])
+    for compra in compras:
+        for parcela in compra["previstas"]:
+            totais[(parcela["periodo"], compra["categoria"])][0] += parcela["valor_centavos"]
+            totais[(parcela["periodo"], compra["categoria"])][1] += 1
+    return [
+        {"periodo": periodo, "categoria": categoria, "total_centavos": valores[0], "quantidade": valores[1]}
+        for (periodo, categoria), valores in sorted(totais.items())
+    ]
+
+
+def analise_gastos(conn, cartao, fatura_id, periodo_filtro="", categoria_filtro=""):
+    selecionada = conn.execute(
+        "SELECT periodo FROM fatura WHERE id = ? AND cartao = ?", (fatura_id, cartao)
+    ).fetchone()
+    if selecionada is None:
+        raise ValueError("fatura não encontrada para o cartão")
+    periodo_referencia = periodo_filtro or selecionada["periodo"]
+    periodos = [linha["periodo"] for linha in conn.execute(
+        "SELECT periodo FROM fatura WHERE cartao = ? ORDER BY periodo", (cartao,)
+    )]
+    if periodo_filtro and periodo_filtro not in periodos:
+        raise ValueError("período não encontrado para o cartão")
+    linhas = _linhas_categorizadas(conn, cartao)
+
+    def categoria(item):
+        return item["categoria"] or SEM_CATEGORIA
+
+    def despesa(item, periodo):
+        return (item["periodo"] == periodo and item["natureza"] == "debito"
+                and item["valor_centavos"] > 0
+                and (not categoria_filtro or categoria(item) == categoria_filtro))
+
+    despesas = [item for item in linhas if despesa(item, periodo_referencia)]
+    anterior = next((mes for mes in reversed(periodos) if mes < periodo_referencia), "")
+    despesas_anteriores = [item for item in linhas if anterior and despesa(item, anterior)]
+    totais_categoria = defaultdict(int)
+    estabelecimentos = defaultdict(lambda: [0, 0])
+    evolucao = defaultdict(int)
+    for item in despesas:
+        totais_categoria[categoria(item)] += item["valor_centavos"]
+        estabelecimento = item["estabelecimento"] or "Estabelecimento não informado"
+        estabelecimentos[estabelecimento][0] += item["valor_centavos"]
+        estabelecimentos[estabelecimento][1] += 1
+    for item in linhas:
+        if item["natureza"] == "debito" and item["valor_centavos"] > 0 and (not categoria_filtro or categoria(item) == categoria_filtro):
+            evolucao[(item["periodo"], categoria(item))] += item["valor_centavos"]
+    creditos = sum(-item["valor_centavos"] for item in linhas
+                   if item["periodo"] == periodo_referencia and item["natureza"] == "credito")
+    compromissos = _compromissos_futuros(conn, cartao)
+    compromissos_categoria = defaultdict(int)
+    parcelas_previstas_categoria = defaultdict(int)
+    for item in compromissos:
+        compromissos_categoria[item["categoria"]] += item["total_centavos"]
+        parcelas_previstas_categoria[item["categoria"]] += item["quantidade"]
+    limites = {linha["categoria"]: linha["limite_centavos"] for linha in conn.execute(
+        "SELECT categoria, limite_centavos FROM orcamento_categoria WHERE cartao = ?", (cartao,)
+    )}
+    categorias = set(CATEGORIAS) | {SEM_CATEGORIA} | set(totais_categoria) | set(limites) | set(compromissos_categoria)
+    orcamentos = []
+    for item_categoria in sorted(categorias):
+        gasto, limite = totais_categoria[item_categoria], limites.get(item_categoria, 0)
+        orcamentos.append({
+            "categoria": item_categoria, "gasto_centavos": gasto, "limite_centavos": limite,
+            "percentual_base_pontos": gasto * 10000 // limite if limite else None,
+            "saldo_centavos": limite - gasto,
+            "compromissos_futuros_centavos": compromissos_categoria[item_categoria],
+            "parcelas_previstas": parcelas_previstas_categoria[item_categoria],
+        })
+    return {
+        "cartao": cartao, "periodo": periodo_referencia, "periodos": periodos,
+        "despesas_elegiveis_centavos": sum(totais_categoria.values()),
+        "creditos_estornos_centavos": creditos,
+        "por_categoria": [{"categoria": nome, "total_centavos": total} for nome, total in sorted(totais_categoria.items(), key=lambda item: (-item[1], item[0]))],
+        "evolucao": [{"periodo": mes, "categoria": nome, "total_centavos": total} for (mes, nome), total in sorted(evolucao.items())],
+        "comparacao": {"periodo_anterior": anterior, "atual_centavos": sum(totais_categoria.values()), "anterior_centavos": sum(item["valor_centavos"] for item in despesas_anteriores)},
+        "estabelecimentos": [{"estabelecimento": nome, "total_centavos": valores[0], "frequencia": valores[1]} for nome, valores in sorted(estabelecimentos.items(), key=lambda item: (-item[1][0], item[0]))],
+        "sem_categoria": {"quantidade": sum(1 for item in despesas if categoria(item) == SEM_CATEGORIA), "total_centavos": totais_categoria[SEM_CATEGORIA]},
+        "orcamentos": orcamentos, "compromissos_futuros": compromissos,
     }

@@ -10,9 +10,9 @@ from urllib.parse import parse_qs
 
 from faturas import (
     FaturaExistente, categorizar_lancamento, conectar, importar, inicializar, lancamentos,
-    listar_faturas, resumo,
+    listar_faturas, resumo, salvar_orcamento,
 )
-from analises import analises_cartao
+from analises import analise_gastos, analises_cartao
 
 PASTA = Path(__file__).resolve().parent
 LIMITE_CSV = 8 * 1024 * 1024
@@ -20,6 +20,7 @@ ESTATICOS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/analises.js": ("analises.js", "text/javascript; charset=utf-8"),
+    "/analise-gastos.js": ("analise-gastos.js", "text/javascript; charset=utf-8"),
     "/estilo.css": ("estilo.css", "text/css; charset=utf-8"),
 }
 
@@ -82,9 +83,9 @@ class Requisicao(BaseHTTPRequestHandler):
                 parametros = parse_qs(consulta, keep_blank_values=True)
                 if rota == "/api/faturas":
                     self.json(200, listar_faturas(conn))
-                elif rota in ("/api/resumo", "/api/lancamentos", "/api/analises"):
+                elif rota in ("/api/resumo", "/api/lancamentos", "/api/analises", "/api/analise-gastos"):
                     fatura = self.inteiro(parametros, "fatura_id", 0, 1, 2**63 - 1)
-                    if rota == "/api/analises":
+                    if rota in ("/api/analises", "/api/analise-gastos"):
                         conn.execute("BEGIN")
                     selecionada = conn.execute(
                         "SELECT cartao FROM fatura WHERE id = ?", (fatura,)
@@ -95,6 +96,11 @@ class Requisicao(BaseHTTPRequestHandler):
                         self.json(200, resumo(conn, fatura))
                     elif rota == "/api/analises":
                         self.json(200, analises_cartao(conn, selecionada["cartao"], fatura))
+                    elif rota == "/api/analise-gastos":
+                        self.json(200, analise_gastos(
+                            conn, selecionada["cartao"], fatura,
+                            parametros.get("periodo", [""])[0], parametros.get("categoria", [""])[0],
+                        ))
                     else:
                         limite = self.inteiro(parametros, "limite", 50, 1, 200)
                         inicio = self.inteiro(parametros, "inicio", 0, 0, 1_000_000)
@@ -126,6 +132,9 @@ class Requisicao(BaseHTTPRequestHandler):
         rota, _, consulta = self.path.partition("?")
         if rota == "/api/categorias":
             self.categorias()
+            return
+        if rota == "/api/orcamentos":
+            self.orcamentos()
             return
         if rota != "/api/importar":
             self.json(404, {"erro": "endereço não encontrado"})
@@ -178,6 +187,28 @@ class Requisicao(BaseHTTPRequestHandler):
             self.json(400, {"erro": str(exc) or "dados de categoria inválidos"})
         except sqlite3.Error:
             self.json(503, {"erro": "não foi possível salvar a categoria"})
+
+    def orcamentos(self):
+        if self.headers.get_content_type() != "application/json":
+            self.json(415, {"erro": "envie o orçamento em JSON"})
+            return
+        try:
+            quantidade = self.inteiro(
+                {"Content-Length": [self.headers.get("Content-Length", "0")]},
+                "Content-Length", 0, 1, 10_000,
+            )
+            dados = json.loads(self.rfile.read(quantidade).decode("utf-8"))
+            if not isinstance(dados, dict):
+                raise ValueError("dados de orçamento inválidos")
+            with closing(conectar(self.server.banco)) as conn:
+                resultado = salvar_orcamento(
+                    conn, dados.get("cartao", ""), dados.get("categoria", ""), dados.get("limite", ""),
+                )
+            self.json(200, resultado)
+        except (TypeError, json.JSONDecodeError, ValueError) as exc:
+            self.json(400, {"erro": str(exc) or "dados de orçamento inválidos"})
+        except sqlite3.Error:
+            self.json(503, {"erro": "não foi possível salvar o orçamento"})
 
 
 def main():

@@ -54,6 +54,18 @@ mesmo estabelecimento. As regras ficam no banco local e também são usadas nas
 faturas seguintes. O gráfico **Gastos por categoria** soma somente os débitos
 da fatura selecionada, incluindo **Sem categoria**.
 
+## Análise e orçamento
+
+A tela **Análise de gastos** consolida as despesas elegíveis da fatura escolhida
+por categoria e estabelecimento, compara o mês com a fatura anterior e mantém
+**Sem categoria** na reconciliação. Pagamentos de fatura não entram como
+despesa; créditos e estornos são mostrados à parte, sem reduzir uma categoria
+quando não há vínculo confiável com a compra original.
+
+O orçamento é definido por cartão e categoria. Os valores gastos, limites,
+percentuais e compromissos futuros usam centavos inteiros. Parcelas previstas
+aparecem separadas das despesas realizadas e não consomem o orçamento atual.
+
 ## Gráficos e parcelamentos
 
 Selecione qualquer fatura do cartão. A seção **Visão do cartão** usa todas as
@@ -129,6 +141,17 @@ CREATE TABLE IF NOT EXISTS regra_categoria_estabelecimento (
     categoria TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS orcamento_categoria (
+    cartao TEXT NOT NULL,
+    categoria TEXT NOT NULL,
+    limite_centavos INTEGER NOT NULL CHECK(limite_centavos >= 0),
+    atualizado_em TEXT NOT NULL,
+    PRIMARY KEY(cartao, categoria)
+);
+
+CREATE INDEX IF NOT EXISTS orcamento_categoria_cartao
+ON orcamento_categoria(cartao);
+
 CREATE INDEX IF NOT EXISTS lancamento_fatura_data
 ON lancamento(fatura_id, data);
 ```
@@ -145,7 +168,9 @@ normalizada do estabelecimento em `estabelecimento_chave`.
 | `GET /api/resumo?fatura_id=1` | Débitos e créditos em centavos, além da contagem |
 | `GET /api/lancamentos?fatura_id=1&limite=50&inicio=0` | Lançamentos paginados. Filtros opcionais `busca` e `natureza` |
 | `GET /api/analises?fatura_id=1` | Histórico, compras parceladas e previsão do cartão vinculado à fatura |
+| `GET /api/analise-gastos?fatura_id=1&periodo=2026-11&categoria=Supermercado` | Análise, orçamento e compromissos futuros por categoria |
 | `POST /api/categorias` | Atualiza a categoria manual de um lançamento; pode salvar a regra para o estabelecimento |
+| `POST /api/orcamentos` | Salva o limite mensal da categoria para um cartão |
 | `POST /api/importar?periodo=2026-11&sinal=positivo` | CSV no corpo com `Content-Type: application/octet-stream`. `cartao` define o apelido. `substituir=1` substitui a fatura do mesmo cartão e mês |
 
 Exemplo de consulta no PowerShell:

@@ -5,7 +5,7 @@ const moeda = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL
 const natureza = { debito: "Débito", credito: "Crédito", pagamento: "Pagamento" };
 const categorias = ["", "Supermercado", "Restaurantes e delivery", "Transporte", "Saúde e farmácia", "Casa", "Compras pessoais", "Assinaturas", "Lazer", "Tarifas e encargos", "Outros"];
 const limite = 50;
-let inicio = 0, consulta = 0, observarBusca, arquivos = [], importando = false;
+let inicio = 0, consulta = 0, observarBusca, arquivos = [], importando = false, faturasAtuais = [];
 
 function navegarPara(tela) {
   if (location.hash !== `#${tela}`) location.hash = tela;
@@ -13,9 +13,9 @@ function navegarPara(tela) {
 }
 function atualizarTela() {
   const tela = location.hash.slice(1);
-  const atual = ["faturas", "visao", "parceladas"].includes(tela) ? tela : "faturas";
+  const atual = ["faturas", "visao", "parceladas", "analise"].includes(tela) ? tela : "faturas";
   if (tela !== atual) history.replaceState(null, "", `#${atual}`);
-  for (const [nome, destino] of Object.entries({ faturas: "telaFaturas", visao: "telaVisao", parceladas: "telaParceladas" })) {
+  for (const [nome, destino] of Object.entries({ faturas: "telaFaturas", visao: "telaVisao", parceladas: "telaParceladas", analise: "telaAnalise" })) {
     elemento(destino).hidden = nome !== atual;
   }
   document.querySelectorAll("[data-tela]").forEach((link) => {
@@ -35,11 +35,14 @@ function mensagem(texto, erro = false) { const destino = elemento("mensagem"); d
 
 async function carregarFaturas(faturaId) {
   const lista = await api("/api/faturas"), seletor = elemento("faturas"), atual = seletor.value;
+  faturasAtuais = lista;
   seletor.replaceChildren(...lista.map((fatura) => { const [ano, mes] = fatura.periodo.split("-"); return new Option(`${mes}/${ano} · ${fatura.cartao}`, fatura.id); }));
   if (!lista.length) seletor.add(new Option("Sem faturas importadas", ""));
   else { const escolhida = String(faturaId ?? atual); if (lista.some((fatura) => String(fatura.id) === escolhida)) seletor.value = escolhida; }
   seletor.disabled = !lista.length;
+  if (typeof sincronizarFiltrosAnalise === "function") sincronizarFiltrosAnalise();
   carregarAnalises(seletor.value);
+  if (typeof carregarAnaliseGastos === "function") carregarAnaliseGastos();
   await mostrarFatura();
 }
 function mostrarLinhas(dados) {
@@ -69,7 +72,10 @@ function editorCategoria(item) {
     salvar.disabled = true;
     try {
       await api("/api/categorias", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lancamento_id: item.id, categoria: seletor.value, aplicar_estabelecimento: marcar.checked }) });
-      await Promise.all([mostrarFatura(), carregarAnalises(elemento("faturas").value)]);
+      await Promise.all([
+        mostrarFatura(), carregarAnalises(elemento("faturas").value),
+        typeof carregarAnaliseGastos === "function" ? carregarAnaliseGastos() : Promise.resolve(),
+      ]);
     } catch (erro) { elemento("erroConsulta").textContent = erro.message; } finally { salvar.disabled = false; }
   });
   caixa.append(seletor, regra, salvar);
@@ -151,7 +157,11 @@ elemento("arquivo").addEventListener("change", () => {
   const grande = arquivos.find((item) => item.arquivo.size > 8 * 1024 * 1024); mensagem(grande ? `${grande.arquivo.name} tem mais de 8 MB.` : arquivos.length ? `${arquivos.length} arquivo(s) selecionado(s).` : "", Boolean(grande)); atualizarRevisao();
 });
 elemento("importar").addEventListener("submit", (evento) => { evento.preventDefault(); importarPendentes(); });
-elemento("faturas").addEventListener("change", () => { inicio = 0; mostrarFatura(); carregarAnalises(elemento("faturas").value); });
+elemento("faturas").addEventListener("change", () => {
+  inicio = 0; mostrarFatura(); carregarAnalises(elemento("faturas").value);
+  if (typeof sincronizarFiltrosAnalise === "function") sincronizarFiltrosAnalise();
+  if (typeof carregarAnaliseGastos === "function") carregarAnaliseGastos();
+});
 elemento("natureza").addEventListener("change", () => { inicio = 0; mostrarFatura(); });
 elemento("categoria").addEventListener("change", () => { inicio = 0; mostrarFatura(); });
 elemento("busca").addEventListener("input", () => { clearTimeout(observarBusca); observarBusca = setTimeout(() => { inicio = 0; mostrarFatura(); }, 180); });

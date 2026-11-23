@@ -6,6 +6,7 @@
   <title>Meus gastos XP</title>
   <link rel="stylesheet" href="/estilo.css">
   <script src="/analises.js" defer></script>
+  <script src="/analise-gastos.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -15,6 +16,7 @@
       <a href="#faturas" data-tela="faturas">Faturas e lançamentos</a>
       <a href="#visao" data-tela="visao">Visão do cartão</a>
       <a href="#parceladas" data-tela="parceladas">Compras parceladas</a>
+      <a href="#analise" data-tela="analise">Análise de gastos</a>
     </nav>
   </header>
   <main class="largura">
@@ -69,6 +71,28 @@
         <dl class="metricas"><div><dt>Em andamento</dt><dd id="comprasAbertas">0</dd></div><div><dt>Saldo futuro estimado</dt><dd id="saldoPrevisto">—</dd></div><div><dt>Vínculos a conferir</dt><dd id="comprasRevisao">0</dd></div></dl>
         <figure class="cartao"><figcaption id="previsaoTitulo">Parcelas previstas por mês</figcaption><p class="nota">Estimativa após a fatura mais recente importada.</p><ol id="graficoPrevisao" class="grafico" aria-labelledby="previsaoTitulo" tabindex="0"></ol><p id="semPrevisao" class="estado-vazio" hidden>Sem parcelas futuras estimadas.</p></figure>
         <section class="cartao acompanhamento"><div class="linha"><div><h3>Detalhes das compras</h3><p class="nota">Vínculos estimados a partir dos lançamentos do CSV.</p></div><label class="seletor">Situação<select id="filtroCompra"><option value="">Todas</option><option value="em_andamento">Em andamento</option><option value="completo">Todas lançadas</option><option value="incompleto">Histórico incompleto</option><option value="conferir">Conferir vínculo</option></select></label></div><p id="semCompras" class="estado-vazio" hidden></p><div id="compras"></div></section>
+      </div>
+    </section>
+
+    <section id="telaAnalise" class="tela" hidden>
+      <div class="linha titulo-analises"><h2>Análise de gastos</h2><span id="analiseCartaoAtual"></span></div>
+      <div class="filtros filtros-analise">
+        <label>Cartão<select id="analiseCartao"></select></label>
+        <label>Fatura<select id="analiseFatura"></select></label>
+        <label>Período<select id="analisePeriodo"></select></label>
+        <label>Categoria<select id="analiseCategoria"><option value="">Todas</option><option>Sem categoria</option><option>Supermercado</option><option>Restaurantes e delivery</option><option>Transporte</option><option>Saúde e farmácia</option><option>Casa</option><option>Compras pessoais</option><option>Assinaturas</option><option>Lazer</option><option>Tarifas e encargos</option><option>Outros</option></select></label>
+      </div>
+      <p id="erroAnalise" role="status" class="erro"></p>
+      <div id="dadosAnalise" hidden>
+        <dl class="metricas"><div><dt>Despesas elegíveis</dt><dd id="analiseDespesas">—</dd></div><div><dt>Créditos e estornos</dt><dd id="analiseCreditos">—</dd></div><div><dt>Sem categoria</dt><dd id="analiseSemCategoria">—</dd></div></dl>
+        <div class="graficos">
+          <figure class="cartao"><figcaption>Distribuição e ranking por categoria</figcaption><ol id="analiseCategorias" class="grafico"></ol></figure>
+          <figure class="cartao"><figcaption>Evolução mensal por categoria</figcaption><ol id="analiseEvolucao" class="grafico"></ol></figure>
+          <section class="cartao comparacao"><h3>Comparação com o mês anterior</h3><p id="analiseComparacao" class="nota"></p></section>
+        </div>
+        <section class="cartao analise-bloco"><div class="linha"><h3>Orçamento mensal por categoria</h3><span class="nota">Limites não alteram o histórico.</span></div><div class="tabela"><table><thead><tr><th>Categoria</th><th>Gasto</th><th>Limite mensal</th><th>Uso</th><th>Saldo</th><th>Compromissos futuros</th><th>Parcelas previstas</th><th>Ação</th></tr></thead><tbody id="analiseOrcamentos"></tbody></table></div></section>
+        <section class="cartao analise-bloco"><h3>Estabelecimentos no período</h3><div class="tabela"><table><thead><tr><th>Estabelecimento</th><th>Frequência</th><th>Valor gasto</th></tr></thead><tbody id="analiseEstabelecimentos"></tbody></table></div></section>
+        <section class="cartao analise-bloco"><h3>Compromissos futuros por categoria e mês</h3><p class="nota">Previsões não entram nas despesas realizadas nem no orçamento consumido.</p><div class="tabela"><table><thead><tr><th>Mês</th><th>Categoria</th><th>Parcelas</th><th>Valor previsto</th></tr></thead><tbody id="analiseCompromissos"></tbody></table></div></section>
       </div>
     </section>
   </main>

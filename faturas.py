@@ -46,6 +46,7 @@ CATEGORIAS = (
     "Supermercado", "Restaurantes e delivery", "Transporte", "Saúde e farmácia", "Casa",
     "Compras pessoais", "Assinaturas", "Lazer", "Tarifas e encargos", "Outros",
 )
+SEM_CATEGORIA = "Sem categoria"
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,19 @@ def inicializar(conn):
         if "categoria_manual" not in colunas:
             conn.execute("ALTER TABLE lancamento ADD COLUMN categoria_manual TEXT")
         conn.execute("UPDATE lancamento SET estabelecimento = descricao WHERE estabelecimento = ''")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS orcamento_categoria (
+                cartao TEXT NOT NULL,
+                categoria TEXT NOT NULL,
+                limite_centavos INTEGER NOT NULL CHECK(limite_centavos >= 0),
+                atualizado_em TEXT NOT NULL,
+                PRIMARY KEY(cartao, categoria)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS orcamento_categoria_cartao
+            ON orcamento_categoria(cartao)
+        """)
 
 
 def recuperar_coluna_parcela(conn, fatura_id, registros):
@@ -368,6 +382,27 @@ def categorizar_lancamento(conn, lancamento_id, categoria, aplicar_estabelecimen
             else:
                 conn.execute("DELETE FROM regra_categoria_estabelecimento WHERE estabelecimento_chave = ?", (chave,))
     return {"categoria": categoria, "estabelecimento": linha["estabelecimento"]}
+
+
+def salvar_orcamento(conn, cartao, categoria, limite):
+    cartao = " ".join(cartao.split())
+    if not cartao or len(cartao) > 60:
+        raise ValueError("informe um apelido do cartão com até 60 caracteres")
+    if categoria not in (*CATEGORIAS, SEM_CATEGORIA):
+        raise ValueError("categoria inválida")
+    limite_centavos = converter_valor(str(limite))
+    if limite_centavos < 0:
+        raise ValueError("o orçamento não pode ser negativo")
+    agora = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with conn:
+        conn.execute("""
+            INSERT INTO orcamento_categoria(cartao, categoria, limite_centavos, atualizado_em)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(cartao, categoria) DO UPDATE SET
+              limite_centavos = excluded.limite_centavos,
+              atualizado_em = excluded.atualizado_em
+        """, (cartao, categoria, limite_centavos, agora))
+    return {"cartao": cartao, "categoria": categoria, "limite_centavos": limite_centavos}
 
 
 def resumo(conn, fatura_id):
